@@ -7,8 +7,15 @@ from fastapi.responses import JSONResponse
 import io
 from PIL import Image
 from fastapi.middleware.cors import CORSMiddleware
+import google.generativeai as genai
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI()
+
+genai.configure(api_key=os.environ["API_KEY"])
+gen_model = genai.GenerativeModel("gemini-1.5-flash")
 
 app.add_middleware(
     CORSMiddleware,
@@ -113,12 +120,43 @@ async def predict(file: UploadFile = File(...)):
     risk_scale = 1 - round(prediction, 2)
     class_label = 'asbestos' if prediction > 0.5 else 'not asbestos'
 
+    prompt = f"""
+
+    You are an expert who specialises in making risk assessment plans. Imagine you work for the government, meaning
+    you are incredibly strict with your assessments. You have been asked to provide a risk assessment based on
+    an asbestos detection test for a building renovation:
+    Probability of Asbestos: {confidence_asbestos:.2f}%
+    Classification: {class_label}
+
+    I need you to do the following:
+    1. the format of the report should be the following way. It is always a table with the following 5 columns:
+        a. Preventative/risk and minimisation strategy
+        b. Identified Risk 
+        c. Potential Source of Risk 
+        d. Actions Required 
+        e. Proposed Outcomes
+    
+    2. Depending on the classification, provide a risk assessment for both cases (Asbestos and Not Asbestos).
+        a. If there is asbestos, depending on the probability, I need you to provide a detailed risk 
+           assessment plan in the table format.
+        b. If there is no asbestos, mention that there is no risk of asbestos but provide a general risk, but thorough
+    Format the response as a structured report.
+        c. At the end of the report, always mention that more images should be taken for a more accurate assessment.
+        Also, mention that the report is based on the current image and the probability of asbestos detection, and that 
+        the risk assessment is subject to change based on further testing. Also mention that an expert should be consulted if needed.
+    
+        3. Generate the report in an html format. Make sure to include the probability and classification in the report. But 
+         write them in a way that is easy to understand for a layman.
+    """
+
+    response = gen_model.generate_content(prompt) # takes a prompt as input and returns a response
+
     result = {
         'filename': file.filename,
         'class_label': class_label,
         'confidence_asbestos': confidence_asbestos,
-        'confidence_non_asbestos': confidence_non_asbestos,
-        'risk_scale': risk_scale
+        'risk_assessment_plan': response.text
     }
 
     return JSONResponse(content=result)
+
